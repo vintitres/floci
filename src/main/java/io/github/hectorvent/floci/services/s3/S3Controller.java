@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import java.io.ByteArrayOutputStream;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -981,10 +982,20 @@ public class S3Controller {
             throw new AwsException("InvalidArgument", "Invalid copy source: " + copySource, 400);
         }
         String sourceBucket = source.substring(0, slashIndex);
-        String sourceKey = source.substring(slashIndex + 1);
+        String rawKey = source.substring(slashIndex + 1);
+        String sourceVersionId = null;
+        int qmark = rawKey.indexOf('?');
+        if (qmark >= 0) {
+            String query = rawKey.substring(qmark + 1);
+            rawKey = rawKey.substring(0, qmark);
+            if (query.startsWith("versionId=")) {
+                sourceVersionId = query.substring("versionId=".length());
+            }
+        }
+        String sourceKey = URLDecoder.decode(rawKey, StandardCharsets.UTF_8);
         String copySourceRange = httpHeaders.getHeaderString("x-amz-copy-source-range");
         String eTag = s3Service.uploadPartCopy(destBucket, destKey, uploadId, partNumber,
-                sourceBucket, sourceKey, copySourceRange);
+                sourceBucket, sourceKey, sourceVersionId, copySourceRange);
         String xml = new XmlBuilder()
                 .raw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
                 .start("CopyPartResult", AwsNamespaces.S3)

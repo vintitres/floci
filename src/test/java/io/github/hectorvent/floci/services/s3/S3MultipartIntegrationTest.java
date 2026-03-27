@@ -241,6 +241,144 @@ class S3MultipartIntegrationTest {
 
     @Test
     @Order(12)
+    void uploadPartCopyOutOfBoundsRange() {
+        String uploadId = given()
+            .when()
+                .post("/" + BUCKET + "/copy-dest-oob.bin?uploads")
+            .then()
+                .statusCode(200)
+                .extract().xmlPath().getString("InitiateMultipartUploadResult.UploadId");
+
+        given()
+            .header("x-amz-copy-source", "/" + BUCKET + "/source-for-copy.bin")
+            .header("x-amz-copy-source-range", "bytes=5-100")
+        .when()
+            .put("/" + BUCKET + "/copy-dest-oob.bin?uploadId=" + uploadId + "&partNumber=1")
+        .then()
+            .statusCode(416);
+
+        given().when().delete("/" + BUCKET + "/copy-dest-oob.bin").then();
+    }
+
+    @Test
+    @Order(13)
+    void uploadPartCopyMalformedRange() {
+        String uploadId = given()
+            .when()
+                .post("/" + BUCKET + "/copy-dest-malformed.bin?uploads")
+            .then()
+                .statusCode(200)
+                .extract().xmlPath().getString("InitiateMultipartUploadResult.UploadId");
+
+        given()
+            .header("x-amz-copy-source", "/" + BUCKET + "/source-for-copy.bin")
+            .header("x-amz-copy-source-range", "bytes=foo-bar")
+        .when()
+            .put("/" + BUCKET + "/copy-dest-malformed.bin?uploadId=" + uploadId + "&partNumber=1")
+        .then()
+            .statusCode(400);
+
+        given().when().delete("/" + BUCKET + "/copy-dest-malformed.bin").then();
+    }
+
+    @Test
+    @Order(14)
+    void uploadPartCopyUrlEncodedSourceKey() {
+        // Put a source object whose key contains a space
+        given()
+            .body("HELLO")
+        .when()
+            .put("/" + BUCKET + "/source%20with%20spaces.bin")
+        .then()
+            .statusCode(200);
+
+        String uploadId = given()
+            .when()
+                .post("/" + BUCKET + "/copy-dest-encoded.bin?uploads")
+            .then()
+                .statusCode(200)
+                .extract().xmlPath().getString("InitiateMultipartUploadResult.UploadId");
+
+        given()
+            .header("x-amz-copy-source", "/" + BUCKET + "/source%20with%20spaces.bin")
+        .when()
+            .put("/" + BUCKET + "/copy-dest-encoded.bin?uploadId=" + uploadId + "&partNumber=1")
+        .then()
+            .statusCode(200)
+            .body(containsString("<CopyPartResult"));
+
+        given().when().delete("/" + BUCKET + "/source%20with%20spaces.bin").then();
+        given().when().delete("/" + BUCKET + "/copy-dest-encoded.bin").then();
+    }
+
+    @Test
+    @Order(15)
+    void uploadPartCopyWithVersionId() {
+        String versionedBucket = BUCKET + "-versioned";
+        // Create bucket and enable versioning
+        given().when().put("/" + versionedBucket).then().statusCode(200);
+        given()
+            .contentType("application/xml")
+            .body("<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>")
+        .when()
+            .put("/" + versionedBucket + "?versioning")
+        .then()
+            .statusCode(200);
+
+        // Put v1, capture its versionId
+        String v1 = given()
+            .body("VERSION_ONE")
+        .when()
+            .put("/" + versionedBucket + "/versioned-source.bin")
+        .then()
+            .statusCode(200)
+            .extract().header("x-amz-version-id");
+
+        // Overwrite with v2
+        given()
+            .body("VERSION_TWO")
+        .when()
+            .put("/" + versionedBucket + "/versioned-source.bin")
+        .then()
+            .statusCode(200);
+
+        // Copy specifically v1 via ?versionId=
+        String uploadId = given()
+            .when()
+                .post("/" + versionedBucket + "/copy-dest-versioned.bin?uploads")
+            .then()
+                .statusCode(200)
+                .extract().xmlPath().getString("InitiateMultipartUploadResult.UploadId");
+
+        given()
+            .header("x-amz-copy-source", "/" + versionedBucket + "/versioned-source.bin?versionId=" + v1)
+        .when()
+            .put("/" + versionedBucket + "/copy-dest-versioned.bin?uploadId=" + uploadId + "&partNumber=1")
+        .then()
+            .statusCode(200)
+            .body(containsString("<CopyPartResult"));
+
+        String completeXml = "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>etag1</ETag></Part></CompleteMultipartUpload>";
+        given()
+            .contentType("application/xml")
+            .body(completeXml)
+        .when()
+            .post("/" + versionedBucket + "/copy-dest-versioned.bin?uploadId=" + uploadId)
+        .then()
+            .statusCode(200);
+
+        given()
+        .when()
+            .get("/" + versionedBucket + "/copy-dest-versioned.bin")
+        .then()
+            .statusCode(200)
+            .body(equalTo("VERSION_ONE"));
+
+        given().when().delete("/" + versionedBucket).then();
+    }
+
+    @Test
+    @Order(16)
     void cleanUp() {
         given().when().delete("/" + BUCKET + "/" + KEY).then().statusCode(204);
         given().when().delete("/" + BUCKET + "/source-for-copy.bin").then().statusCode(204);
