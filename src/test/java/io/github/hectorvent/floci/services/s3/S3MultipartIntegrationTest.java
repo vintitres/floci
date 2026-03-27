@@ -257,7 +257,7 @@ class S3MultipartIntegrationTest {
         .then()
             .statusCode(416);
 
-        given().when().delete("/" + BUCKET + "/copy-dest-oob.bin").then();
+        given().when().delete("/" + BUCKET + "/copy-dest-oob.bin?uploadId=" + uploadId).then();
     }
 
     @Test
@@ -278,17 +278,19 @@ class S3MultipartIntegrationTest {
         .then()
             .statusCode(400);
 
-        given().when().delete("/" + BUCKET + "/copy-dest-malformed.bin").then();
+        given().when().delete("/" + BUCKET + "/copy-dest-malformed.bin?uploadId=" + uploadId).then();
     }
 
     @Test
     @Order(14)
     void uploadPartCopyUrlEncodedSourceKey() {
-        // Put a source object whose key contains a space
+        // Store a source object with a plain key, then reference it in the copy-source header
+        // using percent-encoding (%2D encodes the hyphen). This verifies the server URL-decodes
+        // the x-amz-copy-source header before looking up the object.
         given()
             .body("HELLO")
         .when()
-            .put("/" + BUCKET + "/source%20with%20spaces.bin")
+            .put("/" + BUCKET + "/source-encoded-test.bin")
         .then()
             .statusCode(200);
 
@@ -300,15 +302,15 @@ class S3MultipartIntegrationTest {
                 .extract().xmlPath().getString("InitiateMultipartUploadResult.UploadId");
 
         given()
-            .header("x-amz-copy-source", "/" + BUCKET + "/source%20with%20spaces.bin")
+            .header("x-amz-copy-source", "/" + BUCKET + "/source%2Dencoded%2Dtest.bin")
         .when()
             .put("/" + BUCKET + "/copy-dest-encoded.bin?uploadId=" + uploadId + "&partNumber=1")
         .then()
             .statusCode(200)
             .body(containsString("<CopyPartResult"));
 
-        given().when().delete("/" + BUCKET + "/source%20with%20spaces.bin").then();
-        given().when().delete("/" + BUCKET + "/copy-dest-encoded.bin").then();
+        given().when().delete("/" + BUCKET + "/source-encoded-test.bin").then();
+        given().when().delete("/" + BUCKET + "/copy-dest-encoded.bin?uploadId=" + uploadId).then();
     }
 
     @Test
